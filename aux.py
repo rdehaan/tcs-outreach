@@ -26,7 +26,7 @@ def compute_graphs(
         for model in handle:
             graph = [
                 str(atom) for atom in model.symbols(atoms=True)
-                if atom.name in ["edge", "node"]
+                if atom.name in ["edge", "node", "big_node"]
             ]
             graphs.append(graph)
             if verbose:
@@ -190,23 +190,34 @@ def compute_degree(graph):
 def display_graph(graph):
     nodes = []
     edges = []
+    big_nodes = []
     for atom in graph:
-        if atom[:4] == "node":
+        if atom[:8] == "big_node":
+            big_nodes.append(re.findall(r'\d+', atom)[0])
+        elif atom[:4] == "node":
             nodes.append(re.findall(r'\d+', atom)[0])
         if atom[:4] == "edge":
             nums = re.findall(r'\d+', atom)
             edges.append((nums[0], nums[1]))
 
     plt.rcParams["figure.autolayout"] = True
-    plt.rcParams["figure.figsize"] = (8, 8)
+    plt.rcParams["figure.figsize"] = (10, 10)
     graph = nx.Graph()
 
     ax = plt.gca()
     ax.margins(0.08)
 
+    def node_color(node):
+        if node in big_nodes:
+            return "tab:blue"
+        else:
+            return "tab:red"
+
+    colors = [node_color(node) for node in nodes]
+
     options = {
         "edgecolors": "tab:gray",
-        "node_size": 1000,
+        "node_size": 500,
         "font_color": "white",
         "font_size": 10,
     }
@@ -218,6 +229,7 @@ def display_graph(graph):
         graph,
         layout,
         ax=ax,
+        node_color=colors,
         with_labels=True,
         **options
     )
@@ -269,12 +281,13 @@ def construct_program(
     if require_ham_cycle:
         # Require that the graph has a Hamiltonian cycle
         program += """
-            h_num(1..n).
+            num_nodes(Num) :- Num = #count { N : node(N) }.
+            h_num(1..Num) :- num_nodes(Num).
             1 { h_order(U,N) : h_num(N) } 1 :- node(U).
             1 { h_order(U,N) : node(U) } 1 :- h_num(N).
-            :- num(N), num(N+1), h_order(U1,N), h_order(U2,N+1), not edge(U1,U2).
-            :- h_order(U1,n), h_order(U2,1), not edge(U1,U2).
-            :- h_order(U2,n-1), h_order(U1,2), U1 > U2.
+            :- h_num(N), h_num(N+1), h_order(U1,N), h_order(U2,N+1), not edge(U1,U2).
+            :- h_order(U1,MaxNum), h_order(U2,1), not edge(U1,U2), num_nodes(MaxNum).
+            :- h_order(U2,MaxNum-1), h_order(U1,2), U1 > U2, num_nodes(MaxNum).
         """
 
     if max_indset_lower:
@@ -296,7 +309,8 @@ def construct_program(
         # (See, e.g., https://page.math.tu-berlin.de/~scheuch/publ/SAT2023-smsplanar.pdf)
         program += """
             order(1..3).
-            num(1..n).
+            num_nodes(Num) :- Num = #count { N : node(N) }.
+            num(1..Num) :- num_nodes(Num).
             1 { ordering(I,U,N) : num(N) } 1 :- order(I), node(U).
             1 { ordering(I,U,N) : node(U) } 1 :- order(I), num(N).
             triple_to_check(U,V,W) :- node(U), node(V), node(W), edge(U,V),
@@ -448,3 +462,16 @@ def construct_program(
         program += glue_program
 
     return program
+
+
+def get_list_repr_of_graph(graph):
+    nodes = []
+    edges = []
+    for atom in graph:
+        if atom[:4] == "node":
+            node_nrs = re.findall(r'\d+', atom)
+            nodes.append(int(node_nrs[0]))
+        elif atom[:4] == "edge":
+            node_nrs = re.findall(r'\d+', atom)
+            edges.append((int(node_nrs[0]), int(node_nrs[1])))
+    return nodes, edges
